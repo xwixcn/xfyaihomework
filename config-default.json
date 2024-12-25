@@ -1,0 +1,58 @@
+{
+    "type": "MLP",
+    "cnn": {
+        "input_shape": [28, 28, 1],
+        "conv_layers": [
+            {
+                "type": "conv2d",
+                "filters": 32,
+                "kernel_size": [3, 3],
+                "activation": "relu"
+            },
+            {
+                "type": "conv2d",
+                "filters": 64,
+                "kernel_size": [3, 3],
+                "activation": "relu"
+            }
+        ],
+        "dense_layers": [
+            {
+                "units": 128,
+                "activation": "relu"
+            }
+        ]
+    },
+    "mlp": {
+        "input_shape": [128],
+        "dense_layers": [
+            {
+                "units": 64,
+                "activation": "relu"
+            },
+            {
+                "units": 48,
+                "activation": "relu"
+            },
+            {
+                "units": 48,
+                "activation": "relu"
+            },
+            {
+                "units": 24,
+                "activation": "relu"
+            },
+            {
+                "units": 10,
+                "activation": "softmax"
+            }
+        ]
+    },
+    "optimizer": "adam",
+    "loss": "categorical_crossentropy",
+    "learning_rate": 0.002,
+    "batch_size": 16,
+    "max_iter": 1002,
+    "checkpoint": 12,
+    "max_opt_save": true
+}

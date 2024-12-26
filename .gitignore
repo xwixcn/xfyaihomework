@@ -2,3 +2,4 @@
 data/fer2013.csv.zip
 data/fer2013.csv
 model.h5
+logs/

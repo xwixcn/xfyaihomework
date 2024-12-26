@@ -8,8 +8,9 @@ from torch.utils.data import Dataset
 from matplotlib import pyplot as plt
 
 class FER2013Dataset(Dataset):
-    def __init__(self, csv_file="data/fer2013.csv", transform=None, usage_filter=None, max_samples=None):
+    def __init__(self, csv_file="data/fer2013.csv", transform=None, usage_filter=None, max_samples=None, sender=None):
         self.max_samples = max_samples
+        self.sender = sender
         self.data = self.load_data(csv_file)
         self.transform = transform
         self.usage_filter = usage_filter
@@ -17,6 +18,8 @@ class FER2013Dataset(Dataset):
     def load_data(self, csv_file):
         data = []
         cnt = 0
+        if self.sender is not None:
+            self.sender.addLogOutput("Loading data from " + csv_file)
         with open(csv_file) as f:
             for row in csv.DictReader(f):
                 cnt += 1
@@ -26,6 +29,13 @@ class FER2013Dataset(Dataset):
                 row[1] = [int(p) for p in row['pixels'].split()]
                 row[2] = row['Usage']
                 data.append(row)
+                if cnt % 1000 == 0:
+                    msg = "Loaded " + str(cnt) + " samples"
+                    if self.sender is not None:
+                        self.sender.addLogOutput(msg)
+                    print(msg)
+        if self.sender is not None:
+            self.sender.addLogOutput("Loaded " + str(cnt) + " samples")
         return data
     
     def __len__(self):

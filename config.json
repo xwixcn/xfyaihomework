@@ -1,11 +1,7 @@
 {
     "type": "MLP",
     "cnn": {
-        "input_shape": [
-            28,
-            28,
-            1
-        ],
+        "input_shape": [48,48,1],
         "conv_layers": [
             {
                 "type": "conv2d",
@@ -18,7 +14,25 @@
             },
             {
                 "type": "conv2d",
-                "filters": 64,
+                "filters": 32,
+                "kernel_size": [
+                    3,
+                    3
+                ],
+                "activation": "relu"
+            },
+            {
+                "type": "conv2d",
+                "filters": 16,
+                "kernel_size": [
+                    3,
+                    3
+                ],
+                "activation": "relu"
+            },
+            {
+                "type": "conv2d",
+                "filters": 8,
                 "kernel_size": [
                     3,
                     3
@@ -35,7 +49,7 @@
     },
     "mlp": {
         "input_shape": [
-            128
+            2304
         ],
         "dense_layers": [
             {
@@ -53,10 +67,6 @@
             {
                 "units": 24,
                 "activation": "relu"
-            },
-            {
-                "units": 10,
-                "activation": "softmax"
             }
         ]
     },

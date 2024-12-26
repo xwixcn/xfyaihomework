@@ -4,13 +4,17 @@
 import sys
 import random
 import json
+import time
 from PyQt5 import QtWidgets, QtGui
 from mainDialog import Ui_Dialog
 from fer2013Dataset import FER2013Dataset, pixel_to_image
+from train_tensorflow import train, test, MyLoggerCallback
+from PyQt5.QtCore import QThread
 
 class MainDialog(QtWidgets.QDialog, Ui_Dialog):
     DEFAULT_CONFIG_FILE = "config-default.json"
     CONFIG_FILE = "config.json"
+    EMOTION_SHOW = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
 
     def __init__(self):
         super(MainDialog, self).__init__()
@@ -52,10 +56,16 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.imgScene = QtWidgets.QGraphicsScene()
         self.graphicsView.setScene(self.imgScene)
         self.data = FER2013Dataset(max_samples=100)
+        self.updateCnnListView()
+        self.updateMlpListView()
 
         self.saveButton.clicked.connect(self.saveConfig) 
         # load config from file select by user
         self.loadButton.clicked.connect(self.loadConfigDialog)
+        self.startButton.clicked.connect(self.doTrain)
+        self.testButton.clicked.connect(self.doTest)
+        self.continueButton.clicked.connect(self.doContinue)
+        self.logcallback = None
 
     def loadConfigDialog(self):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Config File", "", "JSON Files (*.json)")
@@ -85,6 +95,18 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         with open(self.CONFIG_FILE, "w") as f:
             json.dump(self.config, f, indent=4)
     
+    def updateCnnListView(self):
+        self.cnnModel.clear()
+        for lcfg in self.config['cnn']['conv_layers']:
+            item = QtGui.QStandardItem("Conv2D: " + str(lcfg['filters']) + " " + str(lcfg['kernel_size']))
+            self.cnnModel.appendRow(item)
+
+    def updateMlpListView(self):
+        self.mlpModel.clear()
+        for lcfg in self.config['mlp']['dense_layers']:
+            item = QtGui.QStandardItem("Dense: " + str(lcfg['units']) + "  激活函数: " + lcfg['activation'])
+            self.mlpModel.appendRow(item)
+
     def setType(self, type):
         self.config['type'] = type
 
@@ -128,9 +150,8 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
 
     def addMLP(self):
         print("addMLP")
-        # add a line to self.listView.
-        item = QtGui.QStandardItem("隐含层: 100")
-        self.mlpModel.appendRow(item)
+        self.config['mlp']['dense_layers'].append({'units': 128, 'activation': 'relu'})
+        self.updateMlpListView()
 
     def editMLP(self, index):
         print("editMLP")
@@ -151,6 +172,7 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         x = self.data[idx]
         pixels = x[1]
         emotion = x[0]
+        emotionStr = self.EMOTION_SHOW[emotion]
         X = pixel_to_image(pixels)
         img = QtGui.QImage(X, 48, 48, QtGui.QImage.Format_Indexed8)
         self.imgScene.clear()
@@ -158,7 +180,128 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.graphicsView.fitInView(self.imgScene.itemsBoundingRect())
         self.imgScene.update()
         self.imgIdxLabel.setText(str(idx))
-        print("done")
+        self.imgEmotionLabel.setText(emotionStr)
+        print("show Image done")
+
+    def addLogOutput(self, output):
+        self.outputTextBrowser.append(output)
+        self.outputTextBrowser.update()
+        vscrollBar = self.outputTextBrowser.verticalScrollBar()
+        vscrollBar.setValue(vscrollBar.maximum())
+
+    def initThread(self):
+        if self.logcallback == None:
+            self.logcallback = MyLoggerCallback()
+            self.logcallback.setSender(self)
+            self.trainThread = TrainThread()
+            self.trainThread.setLogCallBack(self.logcallback)
+            self.trainThread.setLogOutput(self)
+            self.trainThread.start()
+    def checkThread(self):
+        if self.trainThread.startTraining:
+            return "Training is already started"
+        if self.trainThread.startTesting:
+            return "Testing is already started"
+        return None
+            
+    def doTrain(self):
+        self.initThread()
+        msg = self.checkThread()
+        if msg is not None:
+            self.addLogOutput(msg)
+            return
+        self.trainThread.startTraining = True
+        self.trainThread.is_continue = False
+        self.outputTextBrowser.clear()
+        self.addLogOutput("Start training")
+        self.outputTextBrowser.update()
+    
+    def doContinue(self):
+        self.initThread()
+        msg = self.checkThread()
+        if msg is not None:
+            self.addLogOutput(msg)
+            return
+        self.trainThread.startTraining = True
+        self.trainThread.is_continue = True
+        self.outputTextBrowser.clear()
+        self.addLogOutput("Continue training")
+        self.outputTextBrowser.update()
+
+    def doTest(self):
+        self.initThread()
+        msg = self.checkThread()
+        if msg is not None:
+            self.addLogOutput(msg)
+            return
+        self.trainThread.startTesting = True
+        self.outputTextBrowser.clear()
+        self.addLogOutput("Start testing")
+        self.outputTextBrowser.update()
+
+    def setTrainPrecision(self, precision):
+        self.config['precision'] = precision
+
+    def updateTrainPrecision(self):
+        try:
+            showString = "{:.4}".format(self.config['precision']*100)
+            self.trainPrecisionLabel.setText(showString)
+        except:
+            pass
+        
+    def setTestPrecision(self, precision):
+        self.config['precision'] = precision
+
+    def updateTestPrecision(self):
+        try:
+            showString = "{:.4}".format(self.config['precision']*100)
+            self.testPrecisionLabel.setText(showString)
+        except:
+            pass
+
+class TrainThread(QThread):
+    def __init__(self):
+        super(QThread, self).__init__()
+        self.startTraining = False
+        self.startTesting = False
+        self.callback = None
+        self.output = None
+        self.is_continue = False
+
+    def setLogCallBack(self, callback):
+        self.callback = callback
+
+    def setLogOutput(self, output):
+        self.output = output
+
+    def checkThread(self):
+        if self.startTraining:
+            return True
+        if self.startTesting:
+            return True
+        return False
+    
+    def run(self):
+        data = None
+        while True:
+            if not self.checkThread():
+                time.sleep(1)
+                continue
+            if self.startTraining:
+                self.output.addLogOutput("Start training")
+                if data is None:
+                    data = FER2013Dataset(sender=self.output)
+                train(self.callback, data, self.is_continue)
+                self.startTraining = False
+                self.output.addLogOutput("Training done")
+            if self.startTesting:
+                self.output.addLogOutput("Start testing")
+                if data is None:
+                    data = FER2013Dataset(sender=self.output)
+                test(self.callback, data)
+                self.startTesting = False
+                self.output.addLogOutput("Testing done")
+            time.sleep(1)
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

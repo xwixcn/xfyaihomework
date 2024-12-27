@@ -1,5 +1,6 @@
 {
     "type": "MLP",
+    "framework": "keras",
     "cnn": {
         "input_shape": [28, 28, 1],
         "conv_layers": [

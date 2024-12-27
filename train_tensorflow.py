@@ -14,9 +14,11 @@ import numpy as np
 from fer2013Dataset import FER2013Dataset
 
 
-def create_cnn_model_from_config():
-    config = json.load(open("config.json"))
+def create_cnn_model_from_config(config = None):
+    if config == None:
+        config = json.load(open("config.json"))
     cnn_config = config['cnn']
+
     #print(cnn_config)
     model = Sequential()
     input_shape = (48,48,1)
@@ -67,7 +69,7 @@ def create_model():
                 metrics=['accuracy'])
     return model
 
-def train(logcallback = None, data = None, is_continue = False):
+def train(logcallback = None, data = None, is_continue = False, config = None):
     model = create_cnn_model_from_config()
     if is_continue:
         model.load_weights("model.h5")
@@ -121,8 +123,8 @@ class MyLoggerCallback(callbacks.Callback):
     def setSender(self, sender):
         self.sender = sender
     
-def test(callback = None, data = None):
-    model = create_cnn_model_from_config()
+def test(callback = None, data = None, config = None):
+    model = create_cnn_model_from_config(config=config)
     model.load_weights("model.h5")
 
     if data == None:

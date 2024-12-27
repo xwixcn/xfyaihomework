@@ -9,7 +9,7 @@ from PyQt5 import QtWidgets, QtGui
 from mainDialog import Ui_Dialog
 from fer2013Dataset import FER2013Dataset, pixel_to_image
 from train_tensorflow import train, test, MyLoggerCallback
-from PyQt5.QtCore import QThread
+from trainThread import TrainThread
 
 class MainDialog(QtWidgets.QDialog, Ui_Dialog):
     DEFAULT_CONFIG_FILE = "config-default.json"
@@ -20,13 +20,15 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         super(MainDialog, self).__init__()
         self.setupUi(self)
         self.loadConfig()
-        self.mlpListView.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.cnnListView.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
 
-        self.editMlpButton.clicked.connect(self.addMLP) # type: ignore
-        self.editCNNButton.clicked.connect(self.addCNN) # type: ignore
-        self.mlpListView.doubleClicked['QModelIndex'].connect(self.editMLP) # type: ignore
-        self.cnnListView.doubleClicked['QModelIndex'].connect(self.editCNN) # type: ignore
+        self.addMlpButton.clicked.connect(self.addMLP) 
+        self.addCNNButton.clicked.connect(self.addCNN) 
+        self.removeMlpButton.clicked.connect(self.removeMLP)
+        self.removeCNNButton.clicked.connect(self.removeCNN)
+        self.editMlpButton.clicked.connect(self.confirmEditMLP)
+        self.editCNNButton.clicked.connect(self.confirmEditCNN)
+        self.mlpListView.doubleClicked['QModelIndex'].connect(self.editMLP) 
+        self.cnnListView.doubleClicked['QModelIndex'].connect(self.editCNN)
 
         self.typeRadioButtonMLP = self.createRadioButton("MLP")
         self.typeRadioButtonCNN = self.createRadioButton("CNN")
@@ -40,13 +42,19 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.optimizerLayout.addWidget(self.optimizerRadioButtonAdam)
         self.updateOptimizer()
 
+        self.frameworkRadioButtonTensorflow = self.createRadioButton("Tensorflow")
+        self.frameworkRadioButtonKeras = self.createRadioButton("Keras")
+        self.frameworkLayout.addWidget(self.frameworkRadioButtonTensorflow)
+        self.frameworkLayout.addWidget(self.frameworkRadioButtonKeras)
+        self.updateFramework()
+
         self.updateLearningRate()
         self.updateMaxIter()
         self.updateCheckpoint()
 
-        self.lineEdit.textChanged.connect(lambda text: self.setLearningRate(float(text)))
-        self.lineEdit_2.textChanged.connect(lambda text: self.config.__setitem__('max_iter', int(text)))
-        self.lineEdit_3.textChanged.connect(lambda text: self.config.__setitem__('checkpoint', int(text)))
+        self.learnRateEdit.textChanged.connect(self.setLearningRate)
+        self.maxEpocsEdit.textChanged.connect(self.setMaxIter)
+        self.autoSaveEpocsEdit.textChanged.connect(lambda text: self.config.__setitem__('checkpoint', int(text)))
 
         self.mlpModel = QtGui.QStandardItemModel()
         self.mlpListView.setModel(self.mlpModel)
@@ -66,6 +74,8 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.testButton.clicked.connect(self.doTest)
         self.continueButton.clicked.connect(self.doContinue)
         self.logcallback = None
+
+        self.initThread()
 
     def loadConfigDialog(self):
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Config File", "", "JSON Files (*.json)")
@@ -98,7 +108,8 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
     def updateCnnListView(self):
         self.cnnModel.clear()
         for lcfg in self.config['cnn']['conv_layers']:
-            item = QtGui.QStandardItem("Conv2D: " + str(lcfg['filters']) + " " + str(lcfg['kernel_size']))
+            typeStr = lcfg['type']
+            item = QtGui.QStandardItem(typeStr + ": " + str(lcfg['filters']) + " " + str(lcfg['kernel_size']) + ", 激活：" + str(lcfg['activation']))
             self.cnnModel.appendRow(item)
 
     def updateMlpListView(self):
@@ -106,7 +117,110 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         for lcfg in self.config['mlp']['dense_layers']:
             item = QtGui.QStandardItem("Dense: " + str(lcfg['units']) + "  激活函数: " + lcfg['activation'])
             self.mlpModel.appendRow(item)
+    ## MLP
+    def addMLP(self):
+        print("addMLP")
+        unit = self.mlpUnitEdit.text()
+        unit = int(unit)
+        if unit <= 0:
+            self.addLogOutput("unit must be greater than 0")
+            return
+        activation = self.mlpActivationComboBox.currentText()
+        self.config['mlp']['dense_layers'].append({'units': unit, 'activation': activation})
+        self.updateMlpListView()
+        self.curMlpIndex = None
 
+    def editMLP(self, index):
+        print("editMLP")
+        self.curMlpIndex = index.row()
+        print(self.curMlpIndex)
+        self.mlpUnitEdit.setText(str(self.config['mlp']['dense_layers'][index.row()]['units']))
+        self.mlpActivationComboBox.setCurrentText(self.config['mlp']['dense_layers'][index.row()]['activation'])
+        return True
+
+    def removeMLP(self):
+        print("removeMLP")
+        if self.curMlpIndex is None:
+            self.addLogOutput("Please select a layer to remove")
+            return
+        self.config['mlp']['dense_layers'].pop(self.curMlpIndex)
+        self.updateMlpListView()
+        self.curMlpIndex = None
+
+    def confirmEditMLP(self):
+        print("confirmEditMLP")
+        if self.curMlpIndex is None:
+            self.addLogOutput("Please select a layer to edit")
+            return
+        unit = self.mlpUnitEdit.text()
+        unit = int(unit)
+        if unit <= 0:
+            self.addLogOutput("unit must be greater than 0")
+            return
+        self.config['mlp']['dense_layers'][self.curMlpIndex]['units'] = unit
+        self.config['mlp']['dense_layers'][self.curMlpIndex]['activation'] = self.mlpActivationComboBox.currentText()
+        self.updateMlpListView()
+        self.curMlpIndex = None
+
+    ## CNN
+    def addCNN(self):
+        print("addCNN")
+        filters = self.cnnFiltersEdit.text()
+        filters = int(filters)
+        kernel_size_x = self.cnnKernelSizeXEdit.text()
+        kernel_size_x = int(kernel_size_x)
+        kernel_size_y = self.cnnKernelSizeYEdit.text()
+        kernel_size_y = int(kernel_size_y)
+        if filters <= 0 or kernel_size_x <= 0 or kernel_size_y <= 0:
+            self.addLogOutput("filters and kernel size must be greater than 0")
+            return
+        activation = self.cnnActivationComboBox.currentText()
+        layerCfg = {"type": "conv2d", 'filters': filters, 'kernel_size': (kernel_size_x, kernel_size_y), 'activation': activation}
+        self.config['cnn']['conv_layers'].append({'filters': filters, 'kernel_size': (kernel_size_x, kernel_size_y), 'activation': activation})
+        self.updateCnnListView()
+        self.curCnnIndex = None
+
+    def editCNN(self, index):
+        print("editCNN")
+        self.curCnnIndex = index.row()
+        print(self.curCnnIndex)
+        self.cnnFiltersEdit.setText(str(self.config['cnn']['conv_layers'][index.row()]['filters']))
+        self.cnnKernelSizeXEdit.setText(str(self.config['cnn']['conv_layers'][index.row()]['kernel_size'][0]))
+        self.cnnKernelSizeYEdit.setText(str(self.config['cnn']['conv_layers'][index.row()]['kernel_size'][1]))
+        self.cnnActivationComboBox.setCurrentText(self.config['cnn']['conv_layers'][index.row()]['activation'])
+        return True
+        
+    def removeCNN(self):
+        print("removeCNN")
+        if self.curCnnIndex is None:
+            self.addLogOutput("Please select a layer to remove")
+            return
+        self.config['cnn']['conv_layers'].pop(self.curCnnIndex)
+        self.updateCnnListView()
+        self.curCnnIndex = None
+        
+    def confirmEditCNN(self):
+        print("confirmEditCNN")
+        if self.curCnnIndex is None:
+            self.addLogOutput("Please select a layer to edit")
+            return
+        filters = self.cnnFiltersEdit.text()
+        filters = int(filters)
+        kernel_size_x = self.cnnKernelSizeXEdit.text()
+        kernel_size_x = int(kernel_size_x)
+        kernel_size_y = self.cnnKernelSizeYEdit.text()
+        kernel_size_y = int(kernel_size_y)
+        if filters <= 0 or kernel_size_x <= 0 or kernel_size_y <= 0:
+            self.addLogOutput("filters and kernel size must be greater than 0")
+            return
+        activation = self.cnnActivationComboBox.currentText()
+        self.config['cnn']['conv_layers'][self.curCnnIndex]['filters'] = filters
+        self.config['cnn']['conv_layers'][self.curCnnIndex]['kernel_size'] = (kernel_size_x, kernel_size_y)
+        self.config['cnn']['conv_layers'][self.curCnnIndex]['activation'] = activation
+        self.updateCnnListView()
+        self.curCnnIndex = None
+        
+    ## config Type
     def setType(self, type):
         self.config['type'] = type
 
@@ -116,14 +230,9 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         else:
             self.typeRadioButtonCNN.setChecked(True)
 
+    ## config Optimizer
     def setOptimizer(self, optimizer):
         self.config['optimizer'] = optimizer
-
-    def setLearningRate(self, learning_rate):
-        self.config['learning_rate'] = learning_rate
-
-    def updateLearningRate(self):
-        self.lineEdit.setText(str(self.config['learning_rate']))
 
     def updateOptimizer(self):
         if self.config['optimizer'] == "SGD":
@@ -131,11 +240,39 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         else:
             self.optimizerRadioButtonAdam.setChecked(True)
 
+    ## config learning rate
+    def setLearningRate(self, learning_rate):
+        learning_rate = float(learning_rate)
+        self.config['learning_rate'] = learning_rate
+
+    def updateLearningRate(self):
+        self.learnRateEdit.setText(str(self.config['learning_rate']))
+
+    # config framework
+    def setFramework(self, framework):
+        self.config['framework'] = framework
+
+    def updateFramework(self):
+        if self.config['framework'] == "Tensorflow":
+            self.frameworkRadioButtonTensorflow.setChecked(True)
+        else:
+            self.frameworkRadioButtonKeras.setChecked(True)
+
+    ## config max_epocs
+    def setMaxIter(self, max_iter):
+        max_iter = int(max_iter)
+        self.config['max_iter'] = max_iter
+        
     def updateMaxIter(self):
-        self.lineEdit_2.setText(str(self.config['max_iter']))
+        self.maxEpocsEdit.setText(str(self.config['max_iter']))
+
+    ## config checkpoint
+    def setCheckpoint(self, checkpoint):
+        checkpoint = int(checkpoint)
+        self.config['checkpoint'] = checkpoint
 
     def updateCheckpoint(self):
-        self.lineEdit_3.setText(str(self.config['checkpoint']))
+        self.autoSaveEpocsEdit.setText(str(self.config['checkpoint']))
 
     def createRadioButton(self, text):
         radioButton = QtWidgets.QRadioButton(text)
@@ -148,25 +285,10 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
             print(radioButton.text())
             self.setType(radioButton.text())
 
-    def addMLP(self):
-        print("addMLP")
-        self.config['mlp']['dense_layers'].append({'units': 128, 'activation': 'relu'})
-        self.updateMlpListView()
-
-    def editMLP(self, index):
-        print("editMLP")
-        # edit the line of index in self.listView.
-        item = self.mlpModel.itemFromIndex(index)
-        print(item.text())
-        return True
-
-    def addCNN(self):
-        print("addCNN")
-
-    def editCNN(self, index):
-        print("editCNN")
-        
+    ## show image
     def showImage(self):
+        if self.checkThread() is None:
+            self.data = self.trainThread.data
         size = len(self.data)
         idx = random.randint(0, size - 1)
         x = self.data[idx]
@@ -183,12 +305,14 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.imgEmotionLabel.setText(emotionStr)
         print("show Image done")
 
+    ## log output
     def addLogOutput(self, output):
         self.outputTextBrowser.append(output)
         self.outputTextBrowser.update()
         vscrollBar = self.outputTextBrowser.verticalScrollBar()
         vscrollBar.setValue(vscrollBar.maximum())
-
+    
+    ## thread control
     def initThread(self):
         if self.logcallback == None:
             self.logcallback = MyLoggerCallback()
@@ -197,23 +321,25 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
             self.trainThread.setLogCallBack(self.logcallback)
             self.trainThread.setLogOutput(self)
             self.trainThread.start()
+
     def checkThread(self):
-        if self.trainThread.startTraining:
-            return "Training is already started"
-        if self.trainThread.startTesting:
-            return "Testing is already started"
-        return None
-            
+        if self.trainThread.threadIsIdle():
+            return None
+        msg = self.trainThread.getStatusMessage()
+        return msg
+
+    ## command control        
     def doTrain(self):
         self.initThread()
         msg = self.checkThread()
         if msg is not None:
             self.addLogOutput(msg)
             return
-        self.trainThread.startTraining = True
-        self.trainThread.is_continue = False
+        self.trainThread.setConfig(self.config)
+        self.trainThread.setContinue(False)
+        self.trainThread.setStatus("Training")
         self.outputTextBrowser.clear()
-        self.addLogOutput("Start training")
+        self.addLogOutput("start training thread")
         self.outputTextBrowser.update()
     
     def doContinue(self):
@@ -222,10 +348,11 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         if msg is not None:
             self.addLogOutput(msg)
             return
-        self.trainThread.startTraining = True
-        self.trainThread.is_continue = True
+        self.trainThread.setConfig(self.config)
+        self.trainThread.setContinue(True)
+        self.trainThread.setStatus("Training")
         self.outputTextBrowser.clear()
-        self.addLogOutput("Continue training")
+        self.addLogOutput("Start continue training thread")
         self.outputTextBrowser.update()
 
     def doTest(self):
@@ -234,11 +361,12 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         if msg is not None:
             self.addLogOutput(msg)
             return
-        self.trainThread.startTesting = True
+        self.trainThread.setStatus("Testing")
         self.outputTextBrowser.clear()
-        self.addLogOutput("Start testing")
+        self.addLogOutput("Start testing thread")
         self.outputTextBrowser.update()
 
+    ## train precision
     def setTrainPrecision(self, precision):
         self.config['precision'] = precision
 
@@ -249,6 +377,7 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         except:
             pass
         
+    ## test precision
     def setTestPrecision(self, precision):
         self.config['precision'] = precision
 
@@ -258,50 +387,6 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
             self.testPrecisionLabel.setText(showString)
         except:
             pass
-
-class TrainThread(QThread):
-    def __init__(self):
-        super(QThread, self).__init__()
-        self.startTraining = False
-        self.startTesting = False
-        self.callback = None
-        self.output = None
-        self.is_continue = False
-
-    def setLogCallBack(self, callback):
-        self.callback = callback
-
-    def setLogOutput(self, output):
-        self.output = output
-
-    def checkThread(self):
-        if self.startTraining:
-            return True
-        if self.startTesting:
-            return True
-        return False
-    
-    def run(self):
-        data = None
-        while True:
-            if not self.checkThread():
-                time.sleep(1)
-                continue
-            if self.startTraining:
-                self.output.addLogOutput("Start training")
-                if data is None:
-                    data = FER2013Dataset(sender=self.output)
-                train(self.callback, data, self.is_continue)
-                self.startTraining = False
-                self.output.addLogOutput("Training done")
-            if self.startTesting:
-                self.output.addLogOutput("Start testing")
-                if data is None:
-                    data = FER2013Dataset(sender=self.output)
-                test(self.callback, data)
-                self.startTesting = False
-                self.output.addLogOutput("Testing done")
-            time.sleep(1)
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)

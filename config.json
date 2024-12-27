@@ -1,11 +1,16 @@
 {
-    "type": "MLP",
+    "type": "cnn",
+    "framework": "keras",
     "cnn": {
-        "input_shape": [48,48,1],
+        "input_shape": [
+            48,
+            48,
+            1
+        ],
         "conv_layers": [
             {
                 "type": "conv2d",
-                "filters": 32,
+                "filters": 64,
                 "kernel_size": [
                     3,
                     3
@@ -65,7 +70,7 @@
                 "activation": "relu"
             },
             {
-                "units": 24,
+                "units": 36,
                 "activation": "relu"
             }
         ]
@@ -76,5 +81,6 @@
     "batch_size": 16,
     "max_iter": 1001,
     "checkpoint": 11,
-    "max_opt_save": true
+    "max_opt_save": true,
+    "precision": 0.24022911489009857
 }

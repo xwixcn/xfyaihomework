@@ -47,7 +47,41 @@ def create_cnn_model_from_config(config = None):
         activation = lcfg['activation']
         model.add(layers.Dense(units, activation=activation))
     model.add(layers.Dense(10))
-    model.compile(optimizer='adam',
+    if 'optimizer' in config:
+        optimizers = config['optimizer']
+    else:
+        optimizers = 'adam'
+
+    model.compile(optimizer=optimizers,
+                loss=losses.SparseCategoricalCrossentropy(from_logits=True),
+                metrics=['accuracy'])
+    model.summary()
+    return model
+
+def create_mlp_model_from_config(config = None):
+    if config == None:
+        config = json.load(open("config.json"))
+    mlp_config = config['mlp']
+
+    model = Sequential()
+    input_shape = (48,48,1)
+    first_layer = True
+    for lcfg in mlp_config['dense_layers']:
+        units = lcfg['units']
+        activation = lcfg['activation']
+        if first_layer:
+            model.add(layers.Dense(units, activation=activation, input_shape=input_shape))
+            first_layer = False
+        else:
+            model.add(layers.Dense(units, activation=activation))
+    model.add(layers.Flatten())
+    model.add(layers.Dense(10))
+    if 'optimizer' in config:
+        optimizers = config['optimizer']
+    else:
+        optimizers = 'adam'
+
+    model.compile(optimizer=optimizers,
                 loss=losses.SparseCategoricalCrossentropy(from_logits=True),
                 metrics=['accuracy'])
     model.summary()
@@ -70,7 +104,13 @@ def create_model():
     return model
 
 def train(logcallback = None, data = None, is_continue = False, config = None):
-    model = create_cnn_model_from_config()
+    if config['type'] == 'cnn':
+        model = create_cnn_model_from_config()
+    elif config['type'] == 'mlp':
+        model = create_mlp_model_from_config()
+    else:
+        model = create_model()
+
     if is_continue:
         model.load_weights("model.h5")
     model.summary()

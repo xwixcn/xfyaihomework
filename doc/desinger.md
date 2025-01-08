@@ -42,3 +42,6 @@
     - 训练集比例 = 70%
     - 测试集比例 = 20%
     - 验证集比例 = 10%
+
+## 参考代码
+- [Emotion-Detection-FER2013](https://github.com/GSNCodes/Emotion-Detection-FER2013)

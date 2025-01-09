@@ -87,50 +87,29 @@ def create_mlp_model_from_config(config = None):
     model.summary()
     return model
 
-def create_model():
-    model = Sequential()
-    model.add(layers.Conv2D(32, (3, 3), activation='relu', input_shape=(48, 48, 1)))
-    model.add(layers.MaxPooling2D((2, 2)))
-    model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-    model.add(layers.MaxPooling2D((2, 2)))
-    model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-    model.add(layers.Flatten())
-    model.add(layers.Dense(64, activation='relu'))
-    model.add(layers.Dense(10))
-
-    model.compile(optimizer='adam',
-                loss=losses.SparseCategoricalCrossentropy(from_logits=True),
-                metrics=['accuracy'])
-    return model
-
 def train(logcallback = None, data = None, is_continue = False, config = None):
-    if config['type'] == 'cnn':
-        model = create_cnn_model_from_config()
-    elif config['type'] == 'mlp':
-        model = create_mlp_model_from_config()
+    config_type = config['type'].lower()
+    if config_type == 'cnn':
+        model = create_cnn_model_from_config(config)
+    elif config_type == 'mlp':
+        model = create_mlp_model_from_config(config)
     else:
-        model = create_model()
+        print(f"Unknown model type：{config['type']}")
+        return
 
     if is_continue:
         model.load_weights("model.h5")
     model.summary()
 
     if data == None:
-        data = FER2013Dataset()
+        data: FER2013Dataset = FER2013Dataset()
 
-    X_train = []
-    y_train = []
-    for i in range(len(data)):
-        x = data[i]
-        pixels = x[1]
-        emotion = x[0]
-        X_train.append(pixels)
-        y_train.append(emotion)
-
-    X_train = np.array(X_train)
-    y_train = np.array(y_train)
-
-    X_train = X_train.reshape((X_train.shape[0], 48, 48, 1))
+    data.split_by_config(config)
+    data_train = data.get_train_data()
+    if config_type == 'cnn':
+        X_train, y_train = data.trans_to_cnn(data_train)
+    elif config_type == 'mlp':
+        X_train, y_train = data.trans_to_mlp(data_train)
 
     if logcallback == None:
         logcallback = MyLoggerCallback()
@@ -164,27 +143,32 @@ class MyLoggerCallback(callbacks.Callback):
         self.sender = sender
     
 def test(callback = None, data = None, config = None):
-    model = create_cnn_model_from_config(config=config)
+    if config == None:
+        config = json.load(open("config.json"))
+        
+    config_type = config['type'].lower()
+    if config_type == 'cnn':
+        model = create_cnn_model_from_config(config=config)
+    elif config_type == 'mlp':
+        model = create_mlp_model_from_config(config=config)
+    else:
+        print(f"Unknown model type：{config['type']}")
+        return
+    
     model.load_weights("model.h5")
 
     if data == None:
         data = FER2013Dataset()
+        data.split_by_config(config)
 
     if callback == None:
         callback = MyLoggerCallback()
-    X_test = []
-    y_test = []
-    for i in range(len(data)):
-        x = data[i]
-        pixels = x[1]
-        emotion = x[0]
-        X_test.append(pixels)
-        y_test.append(emotion)
 
-    X_test = np.array(X_test)
-    y_test = np.array(y_test)
-
-    X_test = X_test.reshape((X_test.shape[0], 48, 48, 1))
+    data_test = data.get_test_data()
+    if config_type == 'cnn':
+        X_test, y_test = data.trans_to_cnn(data_test)
+    elif config_type == 'mlp':
+        X_test, y_test = data.trans_to_cnn(data_test)
 
     test_loss, test_acc = model.evaluate(X_test, y_test, verbose=0, callbacks=[callback])
     callback.sender.setTestPrecision(test_acc)

@@ -4,7 +4,7 @@
 import sys
 import random
 import json
-import time
+import os
 from PyQt5 import QtWidgets, QtGui
 from mainDialog import Ui_Dialog
 from fer2013Dataset import FER2013Dataset, pixel_to_image
@@ -14,6 +14,7 @@ from trainThread import TrainThread
 class MainDialog(QtWidgets.QDialog, Ui_Dialog):
     DEFAULT_CONFIG_FILE = "config-default.json"
     CONFIG_FILE = "config.json"
+    CONFIG_DIR= "config"
     EMOTION_SHOW = ["Angry", "Disgust", "Fear", "Happy", "Sad", "Surprise", "Neutral"]
 
     def __init__(self):
@@ -30,20 +31,20 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.mlpListView.doubleClicked['QModelIndex'].connect(self.editMLP) 
         self.cnnListView.doubleClicked['QModelIndex'].connect(self.editCNN)
 
-        self.typeRadioButtonMLP = self.createRadioButton("MLP")
-        self.typeRadioButtonCNN = self.createRadioButton("CNN")
+        self.typeRadioButtonMLP = self.createRadioButton("MLP", "type")
+        self.typeRadioButtonCNN = self.createRadioButton("CNN", "type")
         self.typeLayout.addWidget(self.typeRadioButtonMLP)
         self.typeLayout.addWidget(self.typeRadioButtonCNN)
         self.updateType()
         
-        self.optimizerRadioButtonSGD = self.createRadioButton("SGD")
-        self.optimizerRadioButtonAdam = self.createRadioButton("Adam")
+        self.optimizerRadioButtonSGD = self.createRadioButton("SGD", "optimizer")
+        self.optimizerRadioButtonAdam = self.createRadioButton("Adam", "optimizer")
         self.optimizerLayout.addWidget(self.optimizerRadioButtonSGD)
         self.optimizerLayout.addWidget(self.optimizerRadioButtonAdam)
         self.updateOptimizer()
 
-        self.frameworkRadioButtonTensorflow = self.createRadioButton("Tensorflow")
-        self.frameworkRadioButtonKeras = self.createRadioButton("Keras")
+        self.frameworkRadioButtonTensorflow = self.createRadioButton("Tensorflow", "framework")
+        self.frameworkRadioButtonKeras = self.createRadioButton("Keras", "framework")
         self.frameworkLayout.addWidget(self.frameworkRadioButtonTensorflow)
         self.frameworkLayout.addWidget(self.frameworkRadioButtonKeras)
         self.updateFramework()
@@ -78,7 +79,7 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
         self.initThread()
 
     def loadConfigDialog(self):
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Config File", "", "JSON Files (*.json)")
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Config File", directory=self.CONFIG_DIR, filter="JSON Files (*.json)")
         if filename:
             self.loadConfig(filename)
             self.updateType()
@@ -93,6 +94,8 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
             config_filename = filename
         else:
             config_filename = self.CONFIG_FILE
+        if os.path.pathsep not in config_filename:
+            config_filename = os.path.join(self.CONFIG_DIR, config_filename)
 
         try:
             with open(config_filename, "r") as f:
@@ -102,7 +105,10 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
                 self.config = json.load(f)
 
     def saveConfig(self):
-        with open(self.CONFIG_FILE, "w") as f:
+        config_filename = self.CONFIG_FILE
+        if os.path.pathsep not in config_filename:
+            config_filename = os.path.join(self.CONFIG_DIR, config_filename)
+        with open(config_filename, "w") as f:
             json.dump(self.config, f, indent=4)
     
     def updateCnnListView(self):
@@ -274,16 +280,20 @@ class MainDialog(QtWidgets.QDialog, Ui_Dialog):
     def updateCheckpoint(self):
         self.autoSaveEpocsEdit.setText(str(self.config['checkpoint']))
 
-    def createRadioButton(self, text):
+    def createRadioButton(self, text, config_key="type"):
         radioButton = QtWidgets.QRadioButton(text)
-        radioButton.toggled.connect(self.onRadioButtonToggled)
+        radioButton.toggled.connect(lambda checked: self.onRadioButtonToggled(config_key))
         return radioButton
     
-    def onRadioButtonToggled(self):
+    def onRadioButtonToggled(self, config_key="type"):
         radioButton = self.sender()
         if radioButton.isChecked():
             print(radioButton.text())
-            self.setType(radioButton.text())
+            print(config_key)
+            if config_key in self.config:
+                self.config[config_key] = radioButton.text()
+            else:
+                print(f"config key({config_key}) not found")
 
     ## show image
     def showImage(self):

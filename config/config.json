@@ -81,6 +81,7 @@
     "batch_size": 16,
     "max_iter": 1001,
     "checkpoint": 11,
+    "text_size": 0.2,
     "max_opt_save": true,
     "precision": 0.24022911489009857
 }
